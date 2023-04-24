@@ -1,0 +1,129 @@
+diff --git a/api/array_view.h b/api/array_view.h
+index 2d68f1650f..883e2832e3 100644
+--- a/api/array_view.h
++++ b/api/array_view.h
+@@ -210,19 +210,19 @@ class ArrayView final : public array_view_internal::ArrayViewBase<T, Size> {
+   // N> when M != N.
+   template <
+       typename U,
+-      typename std::enable_if<Size != array_view_internal::kArrayViewVarSize &&
++      typename std::enable_if<static_cast<decltype(array_view_internal::kArrayViewVarSize)>(Size) != array_view_internal::kArrayViewVarSize &&
+                               HasDataAndSize<U, T>::value>::type* = nullptr>
+   ArrayView(U& u)  // NOLINT
+       : ArrayView(u.data(), u.size()) {
+-    static_assert(U::size() == Size, "Sizes must match exactly");
++    static_assert(U::size() == static_cast<size_t>(Size), "Sizes must match exactly");
+   }
+   template <
+       typename U,
+-      typename std::enable_if<Size != array_view_internal::kArrayViewVarSize &&
++      typename std::enable_if<static_cast<decltype(array_view_internal::kArrayViewVarSize)>(Size) != array_view_internal::kArrayViewVarSize &&
+                               HasDataAndSize<U, T>::value>::type* = nullptr>
+   ArrayView(const U& u)  // NOLINT(runtime/explicit)
+       : ArrayView(u.data(), u.size()) {
+-    static_assert(U::size() == Size, "Sizes must match exactly");
++    static_assert(U::size() == static_cast<size_t>(Size), "Sizes must match exactly");
+   }
+ 
+   // (Only if size is variable.) Construct an ArrayView from any type U that
+@@ -238,13 +238,13 @@ class ArrayView final : public array_view_internal::ArrayViewBase<T, Size> {
+   // const rtc::Buffer to ArrayView<const uint8_t>.
+   template <
+       typename U,
+-      typename std::enable_if<Size == array_view_internal::kArrayViewVarSize &&
++      typename std::enable_if<static_cast<decltype(array_view_internal::kArrayViewVarSize)>(Size) == array_view_internal::kArrayViewVarSize &&
+                               HasDataAndSize<U, T>::value>::type* = nullptr>
+   ArrayView(U& u)  // NOLINT
+       : ArrayView(u.data(), u.size()) {}
+   template <
+       typename U,
+-      typename std::enable_if<Size == array_view_internal::kArrayViewVarSize &&
++      typename std::enable_if<static_cast<decltype(array_view_internal::kArrayViewVarSize)>(Size) == array_view_internal::kArrayViewVarSize &&
+                               HasDataAndSize<U, T>::value>::type* = nullptr>
+   ArrayView(const U& u)  // NOLINT(runtime/explicit)
+       : ArrayView(u.data(), u.size()) {}
+diff --git a/examples/BUILD.gn b/examples/BUILD.gn
+index 18cb6ecc67..e93be264c5 100644
+--- a/examples/BUILD.gn
++++ b/examples/BUILD.gn
+@@ -58,7 +58,7 @@ group("examples") {
+     }
+   }
+ 
+-  if (is_android || is_win) {
++  if (is_android) {
+     deps += [ ":webrtc_unity_plugin" ]
+   }
+ }
+@@ -822,7 +822,7 @@ if (is_linux || is_chromeos || is_win) {
+   }
+ }
+ 
+-if (is_win || is_android) {
++if (is_android) {
+   rtc_shared_library("webrtc_unity_plugin") {
+     testonly = true
+     sources = [
+diff --git a/modules/audio_processing/agc2/rnn_vad/features_extraction.cc b/modules/audio_processing/agc2/rnn_vad/features_extraction.cc
+index 502023428d..1a6005eb77 100644
+--- a/modules/audio_processing/agc2/rnn_vad/features_extraction.cc
++++ b/modules/audio_processing/agc2/rnn_vad/features_extraction.cc
+@@ -77,12 +77,12 @@ bool FeaturesExtractor::CheckSilenceComputeFeatures(
+   // Analyze reference and lagged frames checking if silence has been detected
+   // and write the feature vector.
+   return spectral_features_extractor_.CheckSilenceComputeFeatures(
+-      reference_frame_view_, {lagged_frame.data(), kFrameSize20ms24kHz},
++      reference_frame_view_, {lagged_frame.data(), static_cast<size_t>(kFrameSize20ms24kHz)},
+       {feature_vector.data() + kNumLowerBands, kNumBands - kNumLowerBands},
+-      {feature_vector.data(), kNumLowerBands},
+-      {feature_vector.data() + kNumBands, kNumLowerBands},
+-      {feature_vector.data() + kNumBands + kNumLowerBands, kNumLowerBands},
+-      {feature_vector.data() + kNumBands + 2 * kNumLowerBands, kNumLowerBands},
++      {feature_vector.data(), static_cast<size_t>(kNumLowerBands)},
++      {feature_vector.data() + kNumBands, static_cast<size_t>(kNumLowerBands)},
++      {feature_vector.data() + kNumBands + kNumLowerBands, static_cast<size_t>(kNumLowerBands)},
++      {feature_vector.data() + kNumBands + 2 * kNumLowerBands, static_cast<size_t>(kNumLowerBands)},
+       &feature_vector[kFeatureVectorSize - 1]);
+ }
+ 
+diff --git a/rtc_base/BUILD.gn b/rtc_base/BUILD.gn
+index 0d8bd4f759..3e6ca1432d 100644
+--- a/rtc_base/BUILD.gn
++++ b/rtc_base/BUILD.gn
+@@ -18,7 +18,20 @@ if (!rtc_build_ssl) {
+   config("external_ssl_library") {
+     assert(rtc_ssl_root != "",
+            "You must specify rtc_ssl_root when rtc_build_ssl==0.")
+-    include_dirs = [ rtc_ssl_root ]
++    include_dirs = [ "$rtc_ssl_root/include" ]
++
++    if( is_win ) {
++      libs = [
++        "$rtc_ssl_root/lib/libcrypto.lib",
++        "$rtc_ssl_root/lib/libssl.lib"
++      ]
++    }
++    if( is_mac || is_linux || is_ios || is_android ) {
++      libs = [
++        "$rtc_ssl_root/lib/libssl.a",
++        "$rtc_ssl_root/lib/libcrypto.a",
++      ]
++    }
+   }
+ }
+ 
+diff --git a/rtc_base/third_party/sigslot/sigslot.h b/rtc_base/third_party/sigslot/sigslot.h
+index a4de0e6603..865557c4b1 100644
+--- a/rtc_base/third_party/sigslot/sigslot.h
++++ b/rtc_base/third_party/sigslot/sigslot.h
+@@ -96,6 +96,10 @@
+ #ifndef RTC_BASE_THIRD_PARTY_SIGSLOT_SIGSLOT_H_
+ #define RTC_BASE_THIRD_PARTY_SIGSLOT_SIGSLOT_H_
+ 
++#ifdef emit
++#undef emit
++#endif
++
+ #include <cstring>
+ #include <list>
+ #include <set>
